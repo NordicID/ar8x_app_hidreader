@@ -1,0 +1,428 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <title>HID Reader</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+	<!-- jquery -->
+	<script src="https://code.jquery.com/jquery-3.1.1.min.js" integrity="sha256-hVVnYaiADRTO2PzUGmuLJr8BLUSjGIZsDYGmIJLv2b8=" crossorigin="anonymous"></script>
+    
+    <!-- bootstrap: Latest compiled and minified CSS -->
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+
+	<!-- bootstrap: Latest compiled and minified JavaScript -->
+	<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+
+	<!-- MQTT -->
+    <script src="mqttws31.js" type="text/javascript"></script>
+    <script src="config.js" type="text/javascript"></script>
+
+    <script type="text/javascript">
+    var mqtt;
+    var reconnectTimeout = 2000;
+    
+	// Tag view update timer
+    var tagUpdateTimer = 0;
+
+	// Control command timeout timer    
+    var ctlTimer = 0;
+    var lastCtlCmd = "";
+
+	// Connect to MQTT broker
+    function MQTTconnect() {
+		if (typeof path == "undefined") {
+			path = '/';
+		}
+		mqtt = new Paho.MQTT.Client(
+				host,
+				port,
+				path,
+				"web_" + parseInt(Math.random() * 100, 10)
+		);
+        var options = {
+            timeout: 3,
+            useSSL: useTLS,
+            cleanSession: cleansession,
+            onSuccess: onConnect,
+            onFailure: function (message) {
+            	addEvent('Connection failed to ' + host + ':' + port + path);
+            	console.log("Connection failed: " + message.errorMessage + "Retrying");
+                setTimeout(MQTTconnect, reconnectTimeout);
+            }
+        };
+
+        mqtt.onConnectionLost = onConnectionLost;
+        mqtt.onMessageArrived = onMessageArrived;
+
+        if (username != null) {
+            options.userName = username;
+            options.password = password;
+        }
+        console.log("Host="+ host + ", port=" + port + ", path=" + path + " TLS = " + useTLS + " username=" + username + " password=" + password);
+        mqtt.connect(options);
+    }
+
+    function onConnect() {
+        // Connection succeeded; subscribe to our topic
+        mqtt.subscribe("/hidreader/events", {qos: 0});
+        addEvent('Connected to ' + host + ':' + port + path);
+		
+		getStatus();
+		inventoryCtl("getSettings");
+    }
+
+    function onConnectionLost(response) {
+    	// Connection lost, start reconnect
+        setTimeout(MQTTconnect, reconnectTimeout);
+        addEvent("connection lost: " + response.errorMessage);
+    }
+
+	// Called when MQTT message arrives
+    function onMessageArrived(message) 
+    {
+    	// Clear ctl timeout and enable buttons
+    	clearTimeout(ctlTimer);
+    	$("input[type=button]").attr("disabled", false);
+    	
+    	// Create JSON object from message
+		var obj = JSON.parse(message.payloadString);
+		
+        if (obj.type == "tags") 
+		{
+			updateTags(obj);
+			clearInterval(tagUpdateTimer);
+			tagUpdateTimer = setTimeout(fetchTags, 5000);
+		} 
+		else if (obj.type == "status") 
+		{
+			// Received status notification
+			addEvent("Status: " + obj.msg);
+			
+			if (obj.msg == "running") {
+				fetchTags();
+			} else {
+				clearInterval(tagUpdateTimer);
+			}
+		}
+		else if (obj.type == "event") 
+		{
+			// Received status notification
+			addEvent(obj.msg);
+		}
+		else if (obj.type == "settings") 
+		{
+			// Received settings notification
+			loadSettingsFromObj(obj.settings);
+			/*$("#outputFormat").val(obj.settings.outputFormat);
+			$("#txLevel").val(obj.settings.txLevel);
+			$("#notifyUniqueTime").val(obj.settings.notifyUniqueTime);
+			$("#hidEnabled").val(obj.settings.hidEnabled);*/
+			addEvent("Settings loaded");
+		}
+    }
+    
+    // Add event to log
+    function addEvent(msg)
+    {
+    	$('#eventrows').prepend('<tr><td>' + msg + '</td><td>'+new Date(Date.now())+'</td></tr>');
+    }
+    
+    // Fetch unique tag storage
+    function fetchTags()
+    {
+    	// Send message to background service
+		var message = new Paho.MQTT.Message("getTags");
+        message.destinationName = "/hidreader/ctl";
+        mqtt.send(message);
+    }
+    
+    // Clear unique tag storage
+    function clearTags()
+    {
+    	inventoryCtl("clear");
+    }
+    
+    // Update tag storage view
+    function updateTags(obj)
+    {
+    	var html = "";
+		// Received inventoried tags, loop through and add to unique tag storage
+		for (var i = 0; i < obj.tags.length; i++) {
+			var tag = obj.tags[i];		
+			var epc = tag.epc;
+			var firstSeen = tag.firstSeen;
+			var lastSeen = tag.lastSeen;
+
+ 			var lastSeenAgo = Math.round(tag.lastSeen/1000);
+ 			var extraStyle = "";
+ 			if (lastSeenAgo > 5) 
+ 				extraStyle = "style=\"color:gray\"";
+				
+    		html += "<tr "+extraStyle+"><td>"+epc+"</td><td>" + dateFormat(new Date(firstSeen)) + "</td><td>"+ lastSeenAgo +" secs ago</td></tr>";
+		}
+
+    	$('#tagrows').html(html);
+    }
+	
+	function dateFormat(d)
+	{
+		var datestring = d.getFullYear() + "/" + ("0"+(d.getMonth()+1)).slice(-2) + "/" + ("0" + d.getDate()).slice(-2) + 
+						" " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
+		return datestring;
+	}
+
+    // Called if no response within 1000ms from background service
+    function ctlTimeoutOccured()
+    {
+    	$("input[type=button]").attr("disabled", false);
+    	addEvent("No response from background service");
+    	addEvent("Timeout occured for command " + lastCtlCmd);
+    	alert("No response from background service\nTimeout occured for command " + lastCtlCmd);
+    	clearInterval(tagUpdateTimer);
+    }
+
+	// Get background service status
+	function getStatus()
+	{
+		inventoryCtl("status");
+	}
+
+	function inventoryCtl(val)
+	{
+		// Start timeout timer
+		lastCtlCmd = "inventoryCtl(" + val + ")";
+        $("input[type=button]").attr("disabled", true);
+		
+		clearTimeout(ctlTimer);
+        ctlTimer = setTimeout(ctlTimeoutOccured, 5000);
+		
+		// Send message to background service
+		var message = new Paho.MQTT.Message(val);
+        message.destinationName = "/hidreader/ctl";
+        mqtt.send(message);        
+	}
+	
+	function loadSettingsFromObj(obj)
+	{
+		$("#outputFormat").val(obj.outputFormat);
+		$("#txLevel").val(obj.txLevel);
+		$("#notifyUniqueTime").val(obj.notifyUniqueTime);
+		$("#hidEnabled").val(obj.hidEnabled);
+	}
+	
+	function saveSettingsFromObj(obj)
+	{
+		var jsonString = JSON.stringify(obj);
+		
+		// Start timeout timer
+		lastCtlCmd = "saveSettings()";
+        $("input[type=button]").attr("disabled", true);
+		
+		clearTimeout(ctlTimer);
+        ctlTimer = setTimeout(ctlTimeoutOccured, 5000);
+		
+		// Send message to background service
+		var message = new Paho.MQTT.Message(jsonString);
+        message.destinationName = "/hidreader/savesettings";
+        mqtt.send(message);        
+	}
+	
+	function saveSettings()
+	{
+		var obj = new Object();
+		obj.outputFormat = $("#outputFormat").val();
+		obj.txLevel = Number($("#txLevel").val());
+		obj.notifyUniqueTime = Number($("#notifyUniqueTime").val());
+		obj.hidEnabled = Number($("#hidEnabled").val());
+		saveSettingsFromObj(obj);
+	}
+	
+	function exportSettings()
+	{
+		var uri = "/app/frontend/hidreader/settings.json";
+		var link = document.createElement("a");
+		link.download = "HidReaderSettings_"+Date.now()+".json";
+		link.href = uri;
+		link.click();
+	}
+	
+	function importSettings()
+	{
+		$('#fileInput').val("");
+		$('#fileInput').click();
+	}
+	
+	function sendImportedSettings(evt)
+	{
+		var f = evt.target.files[0]; 
+		if (f) {
+			var r = new FileReader();
+			r.onload = function(e) { 
+				try {
+					var obj = JSON.parse(e.target.result);
+					//loadSettingsFromObj(obj);
+					saveSettingsFromObj(obj);
+				} catch(err) {
+					alert("Invalid settings file");
+				}
+			}
+			r.readAsText(f);
+		} else { 
+		  alert("Failed to load file");
+		}
+	}
+
+	function resetSettings()
+	{
+		inventoryCtl("resetSettings");
+	}
+
+    $(document).ready(function() {
+    	// Connect to broker
+        MQTTconnect();        
+    });
+
+    </script>
+  </head>
+  <body>
+	
+	<input id="fileInput" type="file" style="visibility:hidden" onchange="sendImportedSettings(event)"/>
+	
+	<div class="container">
+	
+	<div class="row">
+		<div class="col-md-12">
+			<h1>HID Reader</h1>
+			<input type="button" class="btn btn-primary" onclick="inventoryCtl('start')" value="Start"/>
+			<input type="button" class="btn btn-primary" onclick="inventoryCtl('stop')" value="Stop"/>
+			<input type="button" class="btn btn-primary" onclick="clearTags()" value="Clear"/>
+			<br/>
+			<br/>
+		</div>
+	</div>
+	
+	<!-- style="height:800px; overflow-y:auto" -->
+	<div class="row">
+        <div class="col-sm-6">        
+			<div class="panel panel-default">
+				<div class="panel-heading">
+					<h1 class="panel-title">Settings</h1>
+				</div>
+				<div class="panel-body" style="min-height:300px; height:300px; overflow-y:auto">
+					<form>
+					  <div class="form-group">
+						<label for="outputFormat">HID Output Format</label>
+						<input type="text" class="form-control" id="outputFormat" maxlength="200">
+						<p class="help-block">{EPC} = epc, {ANTID} = antenna id, {RSSI} = rssi, {SRSSI} = scaled rssi, {FREQ} = frequency, \r = CR, \n = LF, \t = TAB</p>
+					  </div>
+					  <div class="form-group">
+						<label for="notifyUniqueTime">Notify unique time</label>
+						<input type="number" class="form-control" id="notifyUniqueTime" min="0">
+						<p class="help-block">Tags are notified only when not seen in this time (seconds)</p>
+					  </div>
+					  <div class="form-group">
+						<label for="txLevel">Nur Tx Level</label>
+						<select class="form-control" id="txLevel">
+							<option value="0">Full</option>
+							<option value="1">-1 dB</option>
+							<option value="2">-2 dB</option>
+							<option value="3">-3 dB</option>
+							<option value="4">-4 dB</option>
+							<option value="5">-5 dB</option>
+							<option value="6">-6 dB</option>
+							<option value="7">-7 dB</option>
+							<option value="8">-8 dB</option>
+							<option value="9">-9 dB</option>
+							<option value="10">-10 dB</option>
+							<option value="11">-11 dB</option>
+							<option value="12">-12 dB</option>
+							<option value="13">-13 dB</option>
+							<option value="14">-14 dB</option>
+							<option value="15">-15 dB</option>
+							<option value="16">-16 dB</option>
+							<option value="17">-17 dB</option>
+							<option value="18">-18 dB</option>
+							<option value="19">-19 dB</option>
+							<option value="20">-20 dB</option>
+							<option value="21">-21 dB</option>
+							<option value="22">-22 dB</option>
+							<option value="23">-23 dB</option>
+							<option value="24">-24 dB</option>
+							<option value="25">-25 dB</option>
+							<option value="26">-26 dB</option>
+							<option value="27">-27 dB</option>
+							<option value="28">-28 dB</option>
+							<option value="29">-29 dB</option>
+						</select>
+						<p class="help-block">Rfid reader TX power attenuation</p>
+					  </div>
+					  <div class="form-group">
+						<label for="hidEnabled">Enable HID output</label>
+						<select class="form-control" id="hidEnabled">
+							<option value="0">No</option>
+							<option value="1">Yes</option>
+						</select>
+						<p class="help-block">Keyboard output enable/disable</p>
+					  </div>
+					</form>
+					<hr/>
+					<div class="pull-right">
+							<input type="button" class="btn btn-default" onclick="resetSettings()" value="Reset"/>
+							<input type="button" class="btn btn-default" onclick="exportSettings()" value="Export"/>
+							<input type="button" class="btn btn-default" onclick="importSettings()" value="Import"/>
+							<input type="button" class="btn btn-primary" onclick="saveSettings()" value="Save"/>
+					</div>
+				</div>				
+			</div>        	
+        </div>
+		
+		<div class="col-sm-6">        
+			<div class="panel panel-default">
+				<div class="panel-heading">
+					<h1 class="panel-title">Notified tags</h1>
+				</div>
+				<div class="panel-body" style="min-width:300px; height:300px; overflow-y:auto">
+					<table class="table" width="100%">
+						<thead>
+							<tr>
+								<th>EPC</th>
+								<th>Time</th>
+								<th>Last seen</th>
+							</tr>
+						</thead>
+						<tbody id="tagrows">
+						</tbody>
+				  </table>
+				</div>
+			</div>          
+		</div>
+	</div>
+	
+	<div class="row" style="padding-top:10px;">
+        <div class="col-md-12">
+			<div class="panel panel-default">
+				<div class="panel-heading">
+					<h1 class="panel-title">Event log</h1>
+				</div>
+				<div class="panel-body" style="max-height:300px; overflow-y:auto">
+				  <table class="table" width="100%">
+					<thead>
+					  <tr>
+						<th>Event</th>
+						<th>Time</th>
+					  </tr>
+					</thead>
+					<tbody id="eventrows">
+					</tbody>
+				  </table>
+				</div>
+			</div>
+        </div>
+      </div>
+	
+	</div>
+
+<div style="display:none" id="doneID">HID Reader</div> 
+
+  </body>
+</html>

@@ -1,0 +1,15 @@
+#!/bin/sh
+
+if [ "$1" = "start" ]; then
+	# Signal start to your process(es)
+	echo "Starting..."
+	while true;
+	do
+		~/java/bin/java -cp ".:../lib/*" -Djava.library.path="../lib" hidreader.hidreader
+		echo "Restarting..."
+	done
+elif [ "$1" = "stop" ]; then
+	# Signal stop to your process(es)
+	kill -9 -1
+	echo "Exit"
+fi
