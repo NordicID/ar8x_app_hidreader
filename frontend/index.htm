@@ -83,7 +83,6 @@
     	// Clear ctl timeout and enable buttons
     	clearTimeout(ctlTimer);
     	$("input[type=button]").attr("disabled", false);
-    	
     	// Create JSON object from message
 		var obj = JSON.parse(message.payloadString);
 		
@@ -116,7 +115,7 @@
 			/*$("#outputFormat").val(obj.settings.outputFormat);
 			$("#txLevel").val(obj.settings.txLevel);
 			$("#notifyUniqueTime").val(obj.settings.notifyUniqueTime);
-			$("#hidEnabled").val(obj.settings.hidEnabled);*/
+			$("#outputType").val(obj.settings.outputType);*/
 			addEvent("Settings loaded");
 		}
     }
@@ -207,7 +206,14 @@
 		$("#outputFormat").val(obj.outputFormat);
 		$("#txLevel").val(obj.txLevel);
 		$("#notifyUniqueTime").val(obj.notifyUniqueTime);
-		$("#hidEnabled").val(obj.hidEnabled);
+		$("#outputType").val(obj.outputType);
+		$("#outputAddress").val(obj.outputAddress);
+		$("#outputPort").val(obj.outputPort);
+		$("#postHeader").val(obj.postHeader);
+		$("#postKey").val(obj.postKey);
+		$("#postUser").val(obj.postUser);
+		$("#postPwd").val(obj.postPwd);
+		$('#postAuth')[0].checked = obj.postAuth;
 	}
 	
 	function saveSettingsFromObj(obj)
@@ -233,7 +239,14 @@
 		obj.outputFormat = $("#outputFormat").val();
 		obj.txLevel = Number($("#txLevel").val());
 		obj.notifyUniqueTime = Number($("#notifyUniqueTime").val());
-		obj.hidEnabled = Number($("#hidEnabled").val());
+		obj.outputType = Number($("#outputType").val());
+		obj.outputAddress = $("#outputAddress").val();
+		obj.outputPort = Number($("#outputPort").val());
+		obj.postHeader = Number($("#postHeader").val());
+		obj.postKey = $("#postKey").val();
+		obj.postUser = $("#postUser").val();
+		obj.postPwd = $("#postPwd").val();
+		obj.postAuth =	$('#postAuth')[0].checked;
 		saveSettingsFromObj(obj);
 	}
 	
@@ -311,9 +324,15 @@
 				<div class="panel-body" style="min-height:300px; height:300px; overflow-y:auto">
 					<form>
 					  <div class="form-group">
-						<label for="outputFormat">HID Output Format</label>
+						<label for="outputFormat">Output Format</label>
 						<input type="text" class="form-control" id="outputFormat" maxlength="200">
-						<p class="help-block">{EPC} = epc, {ANTID} = antenna id, {RSSI} = rssi, {SRSSI} = scaled rssi, {FREQ} = frequency, \r = CR, \n = LF, \t = TAB</p>
+						<p class="help-block">{EPC} = epc, {ANTID} = antenna id, {RSSI} = rssi, {SRSSI} = scaled rssi, {FREQ} = frequency, \r = CR, \n = LF, \t = TAB.</p>
+						<p class="help-block">Note that when using HTTP Post & application/json your format should include quotation marks for strings i.e. "{EPC}" or {"code":"{EPC}"}</p>
+					  </div>
+					  <div class="form-group">
+						<label for="postKey">Key name</label>
+						<input type="text" class="form-control" id="postKey" maxlength="200">
+						<p class="help-block">If multipart/form-data is used, this defines the key for the Output value i.e. keyname={EPC} and so on</p>
 					  </div>
 					  <div class="form-group">
 						<label for="notifyUniqueTime">Notify unique time</label>
@@ -357,12 +376,49 @@
 						<p class="help-block">Rfid reader TX power attenuation</p>
 					  </div>
 					  <div class="form-group">
-						<label for="hidEnabled">Enable HID output</label>
-						<select class="form-control" id="hidEnabled">
-							<option value="0">No</option>
-							<option value="1">Yes</option>
+						<label for="outputType">Output type</label>
+						<select class="form-control" id="outputType">
+							<option value="0">None</option>
+							<option value="1">HID</option>
+							<option value="2">TCP</option>
+							<option value="3">HTTP Post</option>
 						</select>
-						<p class="help-block">Keyboard output enable/disable</p>
+						<p class="help-block">Output method to be used</p>
+					  </div>
+					  <div class="form-group">
+						<label for="postHeader">HTTP Post header</label>
+						<select class="form-control" id="postHeader">
+							<option value="0">application/json</option>
+							<option value="1">multipart/form-data</option>
+						</select>
+						<p class="help-block">Content-type to be sent(when Output type == HTTP Post)</p>
+					  </div>
+					  
+					  <div class="form-group">
+						<label for="postAuth">Basic access authentication used for HTTP</label>
+						<div class="checkbox">
+						  <label><input type="checkbox" id="postAuth" value="">Enabled</label>
+						</div>
+					  </div>
+					  <div class="form-group">
+						<label for="postUser">Basic authentication user</label>
+						<input type="text" class="form-control" id="postUser" maxlength="200">
+						<p class="help-block">If using HTTP Post & basic authentication required, add username here</p>
+					  </div>
+					  <div class="form-group">
+						<label for="postPwd">Basic authentication password</label>
+						<input type="password" class="form-control" id="postPwd" maxlength="200">
+						<p class="help-block">If using HTTP Post & basic authentication required, add password here</p>
+					  </div>
+					  <div class="form-group">
+						<label for="outputAddress">Address</label>
+						<input type="text" class="form-control" id="outputAddress" maxlength="200">
+						<p class="help-block">IP-address or full path for HTTP post i.e. 127.0.0.1 or http://127.0.0.1/post/tags/here</p>
+					  </div>
+					  <div class="form-group">
+						<label for="outputPort">TCP port</label>
+						<input type="number" class="form-control" id="outputPort" min="0"> 
+						<p class="help-block">TCP port to use when output type == TCP.</p>
 					  </div>
 					</form>
 					<hr/>

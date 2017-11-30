@@ -1,5 +1,8 @@
 package hidreader;
 
+import java.net.MalformedURLException;
+import java.net.Socket;
+import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
@@ -8,12 +11,21 @@ import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
+import java.security.GeneralSecurityException;
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.io.UnsupportedEncodingException;
+import java.io.Writer;
 
 import com.nordicid.nurapi.NurApi;
 import com.nordicid.nurapi.NurApiException;
@@ -35,6 +47,7 @@ import com.nordicid.nurapi.NurEventTriggeredRead;
 import com.nordicid.nurapi.NurRespInventory;
 import com.nordicid.nurapi.NurTag;
 import com.nordicid.nurapi.NurTagStorage;
+import com.nordicid.tdt.*;
 
 import java.io.IOException;
 
@@ -44,6 +57,8 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
+import org.eclipse.paho.client.mqttv3.internal.websocket.Base64;
+import org.eclipse.paho.client.mqttv3.internal.websocket.Base64.Base64Encoder;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
 import java.nio.channels.FileChannel;
@@ -58,6 +73,25 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Iterator;
+
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+
+import org.apache.http.NameValuePair;
+import org.apache.http.client.*;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.*;
+import org.apache.http.client.params.*;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.ssl.SSLContextBuilder;
+import org.apache.http.conn.ssl.TrustSelfSignedStrategy;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.*;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.entity.*;
 
 public class hidreader {
 	private static MqttClient mosquClient = null;
@@ -144,6 +178,7 @@ public class hidreader {
     private static void publishEvent(String msg)
 	{
 		log("publishEvent() " + msg);
+		msg = msg.replace("\"", "\\\"");
 		String statusJson = "{ \"type\": \"event\", \"msg\": \""+msg+"\" }";
 		publishMessage(statusJson, topicev);
 	}
@@ -232,10 +267,57 @@ public class hidreader {
         }
         return sb.toString();
     }
+    
+    private static void SendToSocket(String str) throws IOException
+    {
+    	 Socket socket = null;
+    	    try {
+    	    	socket = new Socket(outputAddress, (int)outputPort);
+    	        OutputStream outstream = (OutputStream) socket.getOutputStream(); 
+    	        PrintWriter out = new PrintWriter(outstream);
+    	        out.print(str);
+    	        out.flush();
+    	        out.close();
+    	        outstream.close();
+    	    } catch (UnknownHostException e) {
+    	    	publishEvent("SendToSocket failed: " + e.getMessage());
+    	    } finally {
+    	    	if(socket != null)
+    	    		socket.close();
+    	    }
+    }
+    
+	private static void SendHTTPPost(String str) throws NoSuchAlgorithmException, KeyStoreException, KeyManagementException, ClientProtocolException, IOException
+	{
+		SSLContextBuilder builder = new SSLContextBuilder();
+		builder.loadTrustMaterial(null, new TrustSelfSignedStrategy());
+		//allow self-signed certificates by default, feel free to modify to fit your requirements
+		SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(builder.build(), SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
+		CloseableHttpClient httpClient = HttpClients.custom().setSSLSocketFactory(sslsf).build();
+		String encoding = Base64.encode(postUser + ":" + postPwd);
+		HttpPost httpPost = new HttpPost(outputAddress);
+		if(postAuth == true)
+			httpPost.addHeader("Authorization", "Basic " + encoding);
+		if(postHeader == 0)
+		{
+			StringEntity params = new StringEntity(str);
+			httpPost.setEntity(params);
+			httpPost.addHeader("content-type", "application/json");
+			log("Posting JSON");
+		}
+		else
+		{
+			ArrayList<NameValuePair> postParameters = new ArrayList<NameValuePair>(); 
+			postParameters.add(new BasicNameValuePair(postKey, str));
+			httpPost.setEntity(new UrlEncodedFormEntity(postParameters, "UTF-8"));
+			httpPost.addHeader("content-type", "multipart/form-data");
+		}
+		CloseableHttpResponse response = httpClient.execute(httpPost);
+	}
 	
 	private static void notifyTag(NurTag t)
 	{
-		log("notifyTag() " + t.getEpcString() + "; hidEnabled " + hidEnabled);
+		log("notifyTag() " + t.getEpcString() + "; outputType " + outputType);
 		
 		try {
 			String str = outputFormat;
@@ -245,21 +327,40 @@ public class hidreader {
 			str = str.replace("{RSSI}", Integer.toString(t.getRssi()));
 			str = str.replace("{SRSSI}", Integer.toString(t.getScaledRssi()));
 			str = str.replace("{FREQ}", Integer.toString(t.getFreq()));
+			try
+			{
+				str = str.replace("{URI}", new EPCTagEngine(t.getEpcString()).buildTagURI());
+			}
+			catch(Exception e)
+			{
+				str = str.replace("{URI}", t.getEpcString());
+				//e.printStackTrace();
+			}
 			
+			//str = str.replace()
 //			log("Notify tag: " + str);
 			publishEvent("Notify tag: " + str);			
 			
-			if (hidEnabled != 0) 
+			if (outputType == 1) 
 			{
 				str = unescapeJavaString(str);
 				FileWriter file = new FileWriter("/dev/uartRoute");
 				file.write(str);
 				file.flush();
 			}
+			else if(outputType == 2)
+			{
+				SendToSocket(str);
+			}
+			else if(outputType == 3)
+			{
+				SendHTTPPost(str);
+			}
 			
 		} catch (Exception e)
 		{
-			e.printStackTrace();
+			publishEvent("notifyTag failed: " + e.getMessage());
+			//e.printStackTrace();
 		}
 	}
 	
@@ -345,19 +446,34 @@ public class hidreader {
 		return false;
     }
 
-	static String settingsFile = System.getenv("HOME") + "/../frontend/settings.json";
+    static String settingsFile = System.getenv("HOME") + "/../frontend/settings.json";
 	static String outputFormat = "{EPC}\\n";
 	static long txLevel = 0;
 	static long notifyUniqueTime = 3600;
-	static long hidEnabled = 0;
-
+	static long outputType = 0;
+	static String outputAddress = "";
+	static long outputPort = 80;
+	static long postHeader = 0;
+	static String postKey = "";
+	static String postUser = "";
+	static String postPwd = "";
+	static Boolean postAuth = false;
+	
 	static JSONObject getSettingsJsonObject()
 	{
 		JSONObject obj = new JSONObject();
 		obj.put("outputFormat", outputFormat);
 	    obj.put("txLevel", txLevel);
 	    obj.put("notifyUniqueTime", notifyUniqueTime);
-	    obj.put("hidEnabled", hidEnabled);
+	    obj.put("outputType", outputType);
+	    obj.put("outputAddress", outputAddress);
+	    obj.put("outputPort", outputPort);
+	    obj.put("postHeader", postHeader);
+	    obj.put("postKey", postKey);
+	    obj.put("postUser", postUser);
+	    obj.put("postPwd", postPwd);
+	    obj.put("postAuth", postAuth);
+	    log("getSettingsJsonObject: " + postUser);
 		return obj;
 	}
 
@@ -365,7 +481,7 @@ public class hidreader {
 	{
 		try {
 			JSONObject obj = getSettingsJsonObject();
-
+			log("saveSettings " +  obj.get("postUser"));
 			FileWriter file = new FileWriter(settingsFile);
 			file.write(obj.toJSONString());
 		    file.flush();
@@ -402,9 +518,24 @@ public class hidreader {
 				txLevel = (Long) jsonObject.get("txLevel");
 			if (jsonObject.containsKey("notifyUniqueTime"))
 				notifyUniqueTime = (Long) jsonObject.get("notifyUniqueTime");
-			if (jsonObject.containsKey("hidEnabled"))
-				hidEnabled = (Long) jsonObject.get("hidEnabled");
-				
+			if (jsonObject.containsKey("outputType"))
+				outputType = (Long) jsonObject.get("outputType");
+			if (jsonObject.containsKey("outputAddress"))
+				outputAddress = (String) jsonObject.get("outputAddress");
+			if (jsonObject.containsKey("outputPort"))
+				outputPort = (Long) jsonObject.get("outputPort");
+			if(jsonObject.containsKey("postHeader"))
+		    	postHeader = (Long) jsonObject.get("postHeader");
+			if(jsonObject.containsKey("postKey"))
+		    	postKey = (String) jsonObject.get("postKey");
+			if(jsonObject.containsKey("postUser"))
+		    	postUser = (String) jsonObject.get("postUser");
+			if(jsonObject.containsKey("postPwd"))
+		    	postPwd = (String) jsonObject.get("postPwd");
+			if(jsonObject.containsKey("postAuth"))
+		    	postAuth = (Boolean) jsonObject.get("postAuth");
+		    
+		    log("loadSettings: " + postUser);
 			log("LOADED:");
 			log(jsonObject.toString());
 	    } catch (Exception e) {
@@ -422,7 +553,6 @@ public class hidreader {
 	public static void main(String[] args) {
 		
 		log("hidreader main enter; NurApi v" + mApi.getFileVersion());
-
 		loadSettings("");
 		saveSettings();
 
@@ -547,7 +677,7 @@ public class hidreader {
 				// TODO Auto-generated method stub
 			}
 		});
-		
+	
 		while (true)
 		{
 			try { 
@@ -638,9 +768,10 @@ public class hidreader {
 			// Called when a message arrives from the server that matches any
 			// subscription made by the client		
 			String msg = new String(message.getPayload());
-			// log("messageArrived() Topic:\t" + topic + "  Message:\t" + msg);
+			log("messageArrived() Topic:\t" + topic + "  Message:\t" + msg);
 
 			if (topic.equals(topicsave)) {
+				
 				loadSettings(msg);
 				saveSettings();
 				publishEvent("Settings saved");
@@ -674,7 +805,7 @@ public class hidreader {
 					outputFormat = "{EPC}\\n";
 					txLevel = 0;
 					notifyUniqueTime = 3600;
-					hidEnabled = 0;
+					outputType = 0;
 					saveSettings();
 					publishSettings();
 				} catch(Exception e)
