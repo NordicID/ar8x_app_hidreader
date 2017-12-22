@@ -318,7 +318,6 @@ public class hidreader {
 	private static void notifyTag(NurTag t)
 	{
 		log("notifyTag() " + t.getEpcString() + "; outputType " + outputType);
-		
 		try {
 			String str = outputFormat;
 			
@@ -359,8 +358,9 @@ public class hidreader {
 			
 		} catch (Exception e)
 		{
-			publishEvent("notifyTag failed: " + e.getMessage());
-			//e.printStackTrace();
+			publishEvent("notifyTag failed, stopping inventory. Exception: " + e.toString());
+			publishMessage("stop", topicctl);
+			e.printStackTrace();
 		}
 	}
 	
