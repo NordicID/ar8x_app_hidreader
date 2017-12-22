@@ -28,6 +28,7 @@
     var ctlTimer = 0;
     var lastCtlCmd = "";
 
+	var exceptionShown = false;
 	// Connect to MQTT broker
     function MQTTconnect() {
 		if (typeof path == "undefined") {
@@ -45,9 +46,14 @@
             cleanSession: cleansession,
             onSuccess: onConnect,
             onFailure: function (message) {
-            	addEvent('Connection failed to ' + host + ':' + port + path);
-            	console.log("Connection failed: " + message.errorMessage + "Retrying");
-                setTimeout(MQTTconnect, reconnectTimeout);
+				console.log("Connection failed: " + message.errorMessage);
+				addEvent('Connection failed to ' + host + ':' + port + path);
+				setTimeout(MQTTconnect, reconnectTimeout);
+				if(exceptionShown === false)
+				{
+					addExceptionBtn('https://' + host + ':'+ port);
+					exceptionShown = true;
+				}
             }
         };
 
@@ -61,7 +67,11 @@
         console.log("Host="+ host + ", port=" + port + ", path=" + path + " TLS = " + useTLS + " username=" + username + " password=" + password);
         mqtt.connect(options);
     }
-
+	function addExceptionBtn(url)
+	{
+		$('#certExpDiv').prepend('Unable to connect to MQTT broker, you might need to add the server certificate exception manually. <button class="btn btn-warning" onclick="window.open(\'' + url + '\');">Add exception</button>');
+		
+	}
     function onConnect() {
         // Connection succeeded; subscribe to our topic
         mqtt.subscribe("/hidreader/events", {qos: 0});
@@ -453,7 +463,7 @@
 			</div>          
 		</div>
 	</div>
-	
+	<div id="certExpDiv"></div>
 	<div class="row" style="padding-top:10px;">
         <div class="col-md-12">
 			<div class="panel panel-default">
