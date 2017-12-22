@@ -46,3 +46,6 @@ Address:
   
 TCP port
   TCP port to use when output type == TCP.
+  
+Usage notes:
+The nginx web server on the Nordic ID smart devices use self-signed certificate, so most browsers will not accept them by default. This means that you need to add an exception to the certificate by opening the https://<your device ip>:1884(and following your browsers instructions) so that the websocket of the web user interface gets access to the broker. This applies also to your own applications which either connect to the broker or need to access the platform otherwise, they need to handle the non-CA certificate.
