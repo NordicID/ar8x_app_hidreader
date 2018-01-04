@@ -1,5 +1,7 @@
 # ar8x_app_hidreader
-HID Reader for the Nordic ID AR8x-series & Sampo S2 devices
+HID Reader sample application for the Nordic ID AR8x-series & Sampo S2 devices
+
+If you are not yet familiar with the documentation for the Nordic ID Smart Devices, it's highly recommended that you go through it first before starting to modify and/or use this sample application: https://github.com/NordicID/ar8x_samples/tree/master/docs
 
 This application enables your Nordic ID Smart device to output inventory results:
 1) to the mini-USB port of the device (when it's in HID or Unmanaged mode)
@@ -52,4 +54,3 @@ The nginx web server on the Nordic ID smart devices uses self-signed certificate
 
 Keep in mind also that you need to first start the application on the web UI of your Smart Device before opening the configuration view for the app. Otherwise the application will not be able to access the settings since there's no "backend" available through the MQTT broker.
 
-If you are not yet familiar with the documentation for the Nordic ID Smart Devices, it's highly recommended that you go through them first before starting to modify and/or use this sample application: https://github.com/NordicID/ar8x_samples/tree/master/docs
