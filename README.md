@@ -48,4 +48,8 @@ TCP port
   TCP port to use when output type == TCP.
   
 Usage notes:
-The nginx web server on the Nordic ID smart devices use self-signed certificate, so most browsers will not accept them by default. This means that you need to add an exception to the certificate by opening the https://ipaddress-of-your-device:1884(and following your browsers instructions) so that the websocket of the web user interface gets access to the broker. This applies also to your own applications which either connect to the broker or need to access the platform otherwise, they need to handle the non-CA certificate.
+The nginx web server on the Nordic ID smart devices uses self-signed certificate, so most browsers will not accept them by default. This means that for this sample application to work you need to add an exception to the certificate by opening the https://ipaddress-of-your-device:1884 (and following your browsers instructions) so that the websocket of the web user interface is allowed to access the MQTT broker. This applies also to your own applications which either connect to the broker or need to access the platform otherwise, they need to handle the non-CA certificate.
+
+Keep in mind also that you need to first start the application on the web UI of your Smart Device before opening the configuration view for the app. Otherwise the application will not be able to access the settings since there's no "backend" available through the MQTT broker.
+
+If you are not yet familiar with the documentation for the Nordic ID Smart Devices, it's highly recommended that you go through them first before starting to modify and/or use this sample application: https://github.com/NordicID/ar8x_samples/tree/master/docs
