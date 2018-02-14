@@ -54,3 +54,5 @@ The nginx web server on the Nordic ID smart devices uses self-signed certificate
 
 Keep in mind also that you need to first start the application on the web UI of your Smart Device before opening the configuration view for the app. Otherwise the application will not be able to access the settings since there's no "backend" available through the MQTT broker.
 
+### License
+All source files in this repository is provided under terms specified in [LICENSE](LICENSE) file.
