@@ -93,6 +93,9 @@ import org.apache.http.impl.*;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.entity.*;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 public class hidreader {
 	private static MqttClient mosquClient = null;
 	private static MqttMessage  message = new MqttMessage();
@@ -315,28 +318,103 @@ public class hidreader {
 		CloseableHttpResponse response = httpClient.execute(httpPost);
 	}
 	
+	private static String getReplStr(String replStr, NurTag t)
+	{
+		if (replStr.startsWith("EPC")) {
+			return t.getEpcString(); 
+		}
+		else if (replStr.startsWith("ANTID")) {
+			return Integer.toString(t.getAntennaId());
+		}
+		else if (replStr.startsWith("RSSI")) {
+			return Integer.toString(t.getRssi()); 
+		}
+		else if (replStr.startsWith("SRSSI")) {
+			return Integer.toString(t.getScaledRssi()); 
+		}
+		else if (replStr.startsWith("FREQ")) {
+			return Integer.toString(t.getFreq()); 
+		}
+		else if (replStr.startsWith("URI")) {
+			try
+			{
+				return new EPCTagEngine(t.getEpcString()).buildTagURI();
+			}
+			catch(Exception e)
+			{
+				return t.getEpcString();
+			}
+		}
+		return null;
+	}
+	
+	private static String replaceOne(String str, NurTag t, String replStr, int startPos, int endPos, int []nextPos)
+	{
+		String repl = getReplStr(replStr, t);
+		
+		if (repl == null) 
+		{
+			int curly = replStr.indexOf('{');
+			if (curly != -1) {
+				nextPos[0] = startPos + curly;
+			} else {
+				nextPos[0] = endPos;
+			}
+			return str;		
+		}
+		
+		final Pattern pattern = Pattern.compile(":(.*?)\\Z");
+		final Matcher matcher = pattern.matcher(replStr);
+		int stripLen = 0;
+		if (matcher.find()) {
+			try {
+				stripLen = Integer.parseInt(matcher.group(1));				
+				if (stripLen < 0) {
+					repl = repl.substring(repl.length() + stripLen);
+				} else {
+					repl = repl.substring(0, stripLen);
+				}
+
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+	    }		
+
+		String ret = str.substring(0, startPos);
+		ret += repl;
+		
+		nextPos[0] = ret.length();
+		
+		ret += str.substring(endPos);		
+		
+		return ret;
+	}
+	
+	private static String replaceAll(String str, NurTag t)
+	{
+		Pattern pattern = Pattern.compile("\\{(.+?)\\}");	
+		int []nextPos = new int[1];
+		nextPos[0] = 0;
+		int maxLoops = 1000;
+		while (maxLoops-- > 0)
+		{			
+			Matcher matcher = pattern.matcher(str);
+			if (matcher.find(nextPos[0])) {
+				str = replaceOne(str, t, matcher.group(1), matcher.start(), matcher.end(), nextPos);				
+			} else {
+				break;
+			}
+		}
+
+		return str;
+	}
+
 	private static void notifyTag(NurTag t)
 	{
 		log("notifyTag() " + t.getEpcString() + "; outputType " + outputType);
 		try {
-			String str = outputFormat;
+			String str = replaceAll(outputFormat, t);
 			
-			str = str.replace("{EPC}", t.getEpcString());
-			str = str.replace("{ANTID}", Integer.toString(t.getAntennaId()));
-			str = str.replace("{RSSI}", Integer.toString(t.getRssi()));
-			str = str.replace("{SRSSI}", Integer.toString(t.getScaledRssi()));
-			str = str.replace("{FREQ}", Integer.toString(t.getFreq()));
-			try
-			{
-				str = str.replace("{URI}", new EPCTagEngine(t.getEpcString()).buildTagURI());
-			}
-			catch(Exception e)
-			{
-				str = str.replace("{URI}", t.getEpcString());
-				//e.printStackTrace();
-			}
-			
-			//str = str.replace()
 //			log("Notify tag: " + str);
 			publishEvent("Notify tag: " + str);			
 			
@@ -346,6 +424,7 @@ public class hidreader {
 				FileWriter file = new FileWriter("/dev/uartRoute");
 				file.write(str);
 				file.flush();
+				file.close();
 			}
 			else if(outputType == 2)
 			{
@@ -356,7 +435,8 @@ public class hidreader {
 				SendHTTPPost(str);
 			}
 			
-		} catch (Exception e)
+		} 
+		catch (Exception e)
 		{
 			publishEvent("notifyTag failed, stopping inventory. Exception: " + e.toString());
 			publishMessage("stop", topicctl);
