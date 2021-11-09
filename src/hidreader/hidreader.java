@@ -2,14 +2,12 @@ package hidreader;
 
 import java.net.MalformedURLException;
 import java.net.Socket;
+import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
-import org.json.simple.JSONArray;
-import org.json.simple.JSONObject;
-import org.json.simple.parser.JSONParser;
-import org.json.simple.parser.ParseException;
+import org.json.*;
 
 import java.security.GeneralSecurityException;
 import java.security.KeyManagementException;
@@ -26,6 +24,7 @@ import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.io.Writer;
+import java.io.BufferedReader;
 
 import com.nordicid.nurapi.NurApi;
 import com.nordicid.nurapi.NurApiException;
@@ -114,6 +113,8 @@ public class hidreader {
 		public String epc;
 		public Date firstSeen;
 		public Date lastSeen;
+		public Boolean notified;
+		public NurTag tag;
 	}
 	private static HashMap<String, NotifiedTag> mNotifiedTags = new HashMap<String, NotifiedTag>();
 	
@@ -271,53 +272,6 @@ public class hidreader {
         return sb.toString();
     }
     
-    private static void SendToSocket(String str) throws IOException
-    {
-    	 Socket socket = null;
-    	    try {
-    	    	socket = new Socket(outputAddress, (int)outputPort);
-    	        OutputStream outstream = (OutputStream) socket.getOutputStream(); 
-    	        PrintWriter out = new PrintWriter(outstream);
-    	        out.print(str);
-    	        out.flush();
-    	        out.close();
-    	        outstream.close();
-    	    } catch (UnknownHostException e) {
-    	    	publishEvent("SendToSocket failed: " + e.getMessage());
-    	    } finally {
-    	    	if(socket != null)
-    	    		socket.close();
-    	    }
-    }
-    
-	private static void SendHTTPPost(String str) throws NoSuchAlgorithmException, KeyStoreException, KeyManagementException, ClientProtocolException, IOException
-	{
-		SSLContextBuilder builder = new SSLContextBuilder();
-		builder.loadTrustMaterial(null, new TrustSelfSignedStrategy());
-		//allow self-signed certificates by default, feel free to modify to fit your requirements
-		SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(builder.build(), SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
-		CloseableHttpClient httpClient = HttpClients.custom().setSSLSocketFactory(sslsf).build();
-		String encoding = Base64.encode(postUser + ":" + postPwd);
-		HttpPost httpPost = new HttpPost(outputAddress);
-		if(postAuth == true)
-			httpPost.addHeader("Authorization", "Basic " + encoding);
-		if(postHeader == 0)
-		{
-			StringEntity params = new StringEntity(str);
-			httpPost.setEntity(params);
-			httpPost.addHeader("content-type", "application/json");
-			log("Posting JSON");
-		}
-		else
-		{
-			ArrayList<NameValuePair> postParameters = new ArrayList<NameValuePair>(); 
-			postParameters.add(new BasicNameValuePair(postKey, str));
-			httpPost.setEntity(new UrlEncodedFormEntity(postParameters, "UTF-8"));
-			httpPost.addHeader("content-type", "multipart/form-data");
-		}
-		CloseableHttpResponse response = httpClient.execute(httpPost);
-	}
-	
 	private static String getReplStr(String replStr, NurTag t)
 	{
 		if (replStr.startsWith("EPC")) {
@@ -408,63 +362,159 @@ public class hidreader {
 
 		return str;
 	}
-
-	private static void notifyTag(NurTag t)
+	
+	private static void SendToSocket(String str) throws IOException
+    {
+    	Socket socket = null;
+		try {
+			socket = new Socket();
+			socket.connect(new InetSocketAddress(outputAddress, outputPort), 2000);
+			OutputStream outstream = (OutputStream) socket.getOutputStream(); 
+			PrintWriter out = new PrintWriter(outstream);
+			out.print(str);
+			out.flush();
+			out.close();
+			outstream.close();
+		} 
+		finally {
+			if(socket != null)
+				socket.close();
+		}
+    }
+    
+	private static void SendHTTPPost(String str) throws NoSuchAlgorithmException, KeyStoreException, KeyManagementException, ClientProtocolException, IOException
+	{
+		SSLContextBuilder builder = new SSLContextBuilder();
+		builder.loadTrustMaterial(null, new TrustSelfSignedStrategy());
+		//allow self-signed certificates by default, feel free to modify to fit your requirements
+		SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(builder.build(), SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
+		CloseableHttpClient httpClient = HttpClients.custom().setSSLSocketFactory(sslsf).build();
+		String encoding = Base64.encode(postUser + ":" + postPwd);
+		HttpPost httpPost = new HttpPost(outputAddress);
+		if(postAuth == true)
+			httpPost.addHeader("Authorization", "Basic " + encoding);
+		if(postHeader == 0)
+		{
+			StringEntity params = new StringEntity(str);
+			httpPost.setEntity(params);
+			httpPost.addHeader("content-type", "application/json");
+			log("Posting JSON");
+		}
+		else
+		{
+			ArrayList<NameValuePair> postParameters = new ArrayList<NameValuePair>(); 
+			postParameters.add(new BasicNameValuePair(postKey, str));
+			httpPost.setEntity(new UrlEncodedFormEntity(postParameters, "UTF-8"));
+			httpPost.addHeader("content-type", "multipart/form-data");
+		}
+		CloseableHttpResponse response = httpClient.execute(httpPost);
+	}
+	
+	private static void notifyTag(NurTag t) throws Exception
 	{
 		log("notifyTag() " + t.getEpcString() + "; outputType " + outputType);
-		try {
-			String str = replaceAll(outputFormat, t);
-			
-//			log("Notify tag: " + str);
-			publishEvent("Notify tag: " + str);			
-			
-			if (outputType == 1) 
-			{
-				str = unescapeJavaString(str);
-				FileWriter file = new FileWriter("/dev/uartRoute");
-				file.write(str);
-				file.flush();
-				file.close();
-			}
-			else if(outputType == 2)
-			{
-				SendToSocket(str);
-			}
-			else if(outputType == 3)
-			{
-				SendHTTPPost(str);
-			}
-			
-		} 
-		catch (Exception e)
+		String str = replaceAll(outputFormat, t);
+		
+		publishEvent("Notify tag: " + str);			
+		
+		if (outputType == 1) 
 		{
-			publishEvent("notifyTag failed, stopping inventory. Exception: " + e.toString());
-			publishMessage("stop", topicctl);
-			e.printStackTrace();
+			str = unescapeJavaString(str);
+			FileWriter file = new FileWriter("/dev/uartRoute");
+			file.write(str);
+			file.flush();
+			file.close();
+		}
+		else if(outputType == 2)
+		{
+			SendToSocket(str);
+		}
+		else if(outputType == 3)
+		{
+			SendHTTPPost(str);
 		}
 	}
+	
+	// Notify unnotified tags
+	static Thread mNotifyThread = new Thread("NotifyThread") 
+	{
+		public void run()
+		{
+			log("NotifyThread started");
+			ArrayList<NurTag> tagsToNotify = new ArrayList<NurTag>(); 
+			
+			while (true)
+			{
+				try { 
+					Thread.sleep(100);
+				} catch (Exception e) {
+					break;
+				}
+				
+				try 
+				{
+					tagsToNotify.clear();
+
+					// Get unnotified tags to 'tagsToNotify' list and release lock
+					synchronized (mNotifiedTags)
+					{
+						Iterator it = mNotifiedTags.entrySet().iterator();
+						while (it.hasNext()) {
+							Map.Entry pair = (Map.Entry)it.next();
+							NotifiedTag notifiedTag = (NotifiedTag)pair.getValue();
+							if (notifiedTag.notified == false)
+							{
+								notifiedTag.notified = true;
+								// log("add to notify queue: " + notifiedTag.tag.getEpcString());
+								tagsToNotify.add(notifiedTag.tag);					
+							}
+						}
+					}
+					
+					// Notify all tags in list 'tagsToNotify'
+					for (int i = 0; i < tagsToNotify.size(); i++) {
+						notifyTag(tagsToNotify.get(i));
+					}
+				} 
+				catch (Exception e)
+				{
+					publishEvent("notifyTag failed. Exception: " + e.toString());
+					//publishMessage("stop", topicctl);
+					e.printStackTrace();
+				}
+			}
+			
+			log("NotifyThread exit");
+		}
+	};
 	
 	static boolean newTagsAdded = false;
 	
 	private static void handleNewTags()
 	{
 		Date now = new Date();		
-		newTagsAdded = false;
 		synchronized (mApi.getStorage()) 
 		{
-			for (int n=0; n<mApi.getStorage().size(); n++)
+			synchronized (mNotifiedTags)
 			{
-				NurTag t = mApi.getStorage().get(n);				
-				if (mNotifiedTags.containsKey(t.getEpcString())) {
-					mNotifiedTags.get(t.getEpcString()).lastSeen = now;
-				} else {
-					newTagsAdded = true;
-					NotifiedTag notifiedTag = new NotifiedTag();
-					notifiedTag.epc = t.getEpcString();
-					notifiedTag.firstSeen = now;
-					notifiedTag.lastSeen = now;
-					mNotifiedTags.put(t.getEpcString(), notifiedTag);
-					notifyTag(t);
+				houseKeeping();
+
+				for (int n=0; n<mApi.getStorage().size(); n++)
+				{
+					NurTag t = mApi.getStorage().get(n);				
+					if (mNotifiedTags.containsKey(t.getEpcString())) {
+						mNotifiedTags.get(t.getEpcString()).lastSeen = now;
+						mNotifiedTags.get(t.getEpcString()).tag = t;
+					} else {
+						newTagsAdded = true;
+						NotifiedTag notifiedTag = new NotifiedTag();
+						notifiedTag.epc = t.getEpcString();
+						notifiedTag.firstSeen = now;
+						notifiedTag.lastSeen = now;
+						notifiedTag.notified = false;
+						notifiedTag.tag = t;
+						mNotifiedTags.put(t.getEpcString(), notifiedTag);
+					}
 				}
 			}
 			mApi.getStorage().clear();
@@ -474,21 +524,21 @@ public class hidreader {
     // Publish inventoried tags
     private static void publishTags()
 	{
-		newTagsAdded = false;
-		houseKeeping();
-	
 		Date now = new Date();
 		JSONObject tagsJson = new JSONObject();
 		JSONArray tagsList = new JSONArray();
-		Iterator it = mNotifiedTags.entrySet().iterator();
-		while (it.hasNext()) {
-			Map.Entry pair = (Map.Entry)it.next();
-			NotifiedTag notifiedTag = (NotifiedTag)pair.getValue();
-			JSONObject tagJson = new JSONObject();
-			tagJson.put("epc", notifiedTag.epc);
-			tagJson.put("firstSeen", notifiedTag.firstSeen.getTime());
-			tagJson.put("lastSeen", now.getTime() - notifiedTag.lastSeen.getTime());
-			tagsList.add(tagJson);
+		synchronized (mNotifiedTags)
+		{
+			Iterator it = mNotifiedTags.entrySet().iterator();
+			while (it.hasNext()) {
+				Map.Entry pair = (Map.Entry)it.next();
+				NotifiedTag notifiedTag = (NotifiedTag)pair.getValue();
+				JSONObject tagJson = new JSONObject();
+				tagJson.put("epc", notifiedTag.epc);
+				tagJson.put("firstSeen", notifiedTag.firstSeen.getTime());
+				tagJson.put("lastSeen", now.getTime() - notifiedTag.lastSeen.getTime());
+				tagsList.put(tagJson);
+			}
 		}
 		tagsJson.put("type", "tags");
 		tagsJson.put("tags", tagsList);
@@ -499,15 +549,18 @@ public class hidreader {
 	{
 		boolean ret = false;
 		Date now = new Date();
-		Iterator it = mNotifiedTags.entrySet().iterator();
-		while (it.hasNext()) {
-			Map.Entry pair = (Map.Entry)it.next();
-			NotifiedTag notifiedTag = (NotifiedTag)pair.getValue();
-			if ((now.getTime()-notifiedTag.lastSeen.getTime())/1000 >= notifyUniqueTime) {
-				log("Expired tag: " + notifiedTag.epc);
-				publishEvent("Expired tag: " + notifiedTag.epc);
-				it.remove();
-				ret = true;
+		synchronized (mNotifiedTags)
+		{
+			Iterator it = mNotifiedTags.entrySet().iterator();
+			while (it.hasNext()) {
+				Map.Entry pair = (Map.Entry)it.next();
+				NotifiedTag notifiedTag = (NotifiedTag)pair.getValue();
+				if ((now.getTime()-notifiedTag.lastSeen.getTime())/1000 >= notifyUniqueTime) {
+					log("Expired tag: " + notifiedTag.epc);
+					publishEvent("Expired tag: " + notifiedTag.epc);
+					it.remove();
+					ret = true;
+				}
 			}
 		}
 		return ret;
@@ -526,14 +579,14 @@ public class hidreader {
 		return false;
     }
 
-    static String settingsFile = System.getenv("HOME") + "/../frontend/settings.json";
+    static String settingsFile = System.getenv("HOME") + "/../properties/settings.json";
 	static String outputFormat = "{EPC}\\n";
-	static long txLevel = 0;
-	static long notifyUniqueTime = 3600;
-	static long outputType = 0;
+	static int txLevel = 0;
+	static int notifyUniqueTime = 3600;
+	static int outputType = 0;
 	static String outputAddress = "";
-	static long outputPort = 80;
-	static long postHeader = 0;
+	static int outputPort = 80;
+	static int postHeader = 0;
 	static String postKey = "";
 	static String postUser = "";
 	static String postPwd = "";
@@ -553,7 +606,7 @@ public class hidreader {
 	    obj.put("postUser", postUser);
 	    obj.put("postPwd", postPwd);
 	    obj.put("postAuth", postAuth);
-	    log("getSettingsJsonObject: " + postUser);
+	    // log("getSettingsJsonObject");
 		return obj;
 	}
 
@@ -561,13 +614,13 @@ public class hidreader {
 	{
 		try {
 			JSONObject obj = getSettingsJsonObject();
-			log("saveSettings " +  obj.get("postUser"));
+			// log("saveSettings");
 			FileWriter file = new FileWriter(settingsFile);
-			file.write(obj.toJSONString());
+			file.write(obj.toString(4));
 		    file.flush();
 
 			log("SAVED:");
-			log(obj.toString());
+			log(obj.toString(4));
 	    } catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -580,44 +633,58 @@ public class hidreader {
 		obj.put("settings", getSettingsJsonObject());
 		publishMessage(obj.toString(), topicev);
 	}
+	
+	static String readFile(String filename)
+	{
+		try {
+			BufferedReader reader = new BufferedReader(new FileReader(filename));
+			StringBuilder content = new StringBuilder();
+			int value;
+			while ((value = reader.read()) != -1) {
+				content.append((char) value);
+			}
+			reader.close();
+			// log(filename + " content: " + content.toString());
+			return content.toString();
+		} catch (Exception e) {
+            e.printStackTrace();
+        }
+		return "";
+	}
 
 	static void loadSettings(String jsonData)
 	{
 		try {
-			JSONParser parser = new JSONParser();
-			Object obj;
 			if (jsonData.length() == 0) {
-				obj = parser.parse(new FileReader(settingsFile));
-			} else {
-				obj = parser.parse(jsonData);
+				jsonData = readFile(settingsFile);
 			}
- 			JSONObject jsonObject = (JSONObject) obj;
-			if (jsonObject.containsKey("outputFormat"))
+			JSONObject jsonObject = new JSONObject(jsonData);
+			
+			if (jsonObject.has("outputFormat"))
 				outputFormat = (String) jsonObject.get("outputFormat");
-			if (jsonObject.containsKey("txLevel"))
-				txLevel = (Long) jsonObject.get("txLevel");
-			if (jsonObject.containsKey("notifyUniqueTime"))
-				notifyUniqueTime = (Long) jsonObject.get("notifyUniqueTime");
-			if (jsonObject.containsKey("outputType"))
-				outputType = (Long) jsonObject.get("outputType");
-			if (jsonObject.containsKey("outputAddress"))
-				outputAddress = (String) jsonObject.get("outputAddress");
-			if (jsonObject.containsKey("outputPort"))
-				outputPort = (Long) jsonObject.get("outputPort");
-			if(jsonObject.containsKey("postHeader"))
-		    	postHeader = (Long) jsonObject.get("postHeader");
-			if(jsonObject.containsKey("postKey"))
-		    	postKey = (String) jsonObject.get("postKey");
-			if(jsonObject.containsKey("postUser"))
-		    	postUser = (String) jsonObject.get("postUser");
-			if(jsonObject.containsKey("postPwd"))
-		    	postPwd = (String) jsonObject.get("postPwd");
-			if(jsonObject.containsKey("postAuth"))
-		    	postAuth = (Boolean) jsonObject.get("postAuth");
+			if (jsonObject.has("txLevel"))
+				txLevel = jsonObject.getInt("txLevel");
+			if (jsonObject.has("notifyUniqueTime"))
+				notifyUniqueTime = jsonObject.getInt("notifyUniqueTime");
+			if (jsonObject.has("outputType"))
+				outputType = jsonObject.getInt("outputType");
+			if (jsonObject.has("outputAddress"))
+				outputAddress = jsonObject.getString("outputAddress");
+			if (jsonObject.has("outputPort"))
+				outputPort = jsonObject.getInt("outputPort");
+			if(jsonObject.has("postHeader"))
+		    	postHeader = jsonObject.getInt("postHeader");
+			if(jsonObject.has("postKey"))
+		    	postKey = jsonObject.getString("postKey");
+			if(jsonObject.has("postUser"))
+		    	postUser = jsonObject.getString("postUser");
+			if(jsonObject.has("postPwd"))
+		    	postPwd = jsonObject.getString("postPwd");
+			if(jsonObject.has("postAuth"))
+		    	postAuth = jsonObject.getBoolean("postAuth");
 		    
-		    log("loadSettings: " + postUser);
 			log("LOADED:");
-			log(jsonObject.toString());
+			log(jsonObject.toString(4));
 	    } catch (Exception e) {
             e.printStackTrace();
         }
@@ -707,9 +774,9 @@ public class hidreader {
 			@Override
 			public void connectedEvent() {
 				try {
-	                                mApi.setSetupTxLevel((int)txLevel);
-                		} catch (Exception ex)
-		                { }
+					mApi.setSetupTxLevel((int)txLevel);
+				} catch (Exception ex)
+				{ }
 			}
 			
 			@Override
@@ -757,6 +824,8 @@ public class hidreader {
 				// TODO Auto-generated method stub
 			}
 		});
+		
+		mNotifyThread.start();
 	
 		while (true)
 		{
@@ -766,12 +835,12 @@ public class hidreader {
 			{
 				break;
 			}
-			
+
 			// init mqtt for sending the results
 			initMqtt();
 
 			if (!mApi.isConnected())
-			{				
+			{
 				if (!connectNurIP("localhost", 4333))		
 				{					
 					publishStatus("noconn");
@@ -794,6 +863,7 @@ public class hidreader {
 				if (houseKeeping() || newTagsAdded) {					
 					publishTags();
 				}
+				newTagsAdded = false;
 			}
 		}
 
@@ -851,17 +921,27 @@ public class hidreader {
 			log("messageArrived() Topic:\t" + topic + "  Message:\t" + msg);
 
 			if (topic.equals(topicsave)) {
-				
-				loadSettings(msg);
-				saveSettings();
-				publishEvent("Settings saved");
-				publishSettings();
+				try {
+					loadSettings(msg);
+					saveSettings();
+					publishEvent("Settings saved");
+					publishSettings();
+				} catch(Exception e)
+				{
+					publishStatus("error " + e.getMessage());
+				}	
 				return;
 			}
 
 			if (msg.equals("getTags")) 
 			{
-				publishTags();
+				try {
+					houseKeeping();
+					publishTags();
+				} catch(Exception e)
+				{
+					publishStatus("error " + e.getMessage());
+				}	
 			}
 			else if (msg.equals("getSettings")) 
 			{
@@ -876,10 +956,7 @@ public class hidreader {
 			{
 				try {
 					Files.delete(Paths.get(settingsFile));
-				} catch(Exception e)
-				{
-					
-				}
+				} catch(Exception e) { }
 				
 				try {
 					outputFormat = "{EPC}\\n";
@@ -900,9 +977,11 @@ public class hidreader {
 			else if (msg.equals("clear")) 
 			{
 				try {
-					mNotifiedTags.clear();
-					publishEvent("Cleared");
-					publishTags();
+					synchronized (mNotifiedTags) {
+						mNotifiedTags.clear();
+						publishEvent("Cleared");
+						publishTags();
+					}
 				} catch(Exception e)
 				{
 					publishStatus("error " + e.getMessage());

@@ -1,0 +1,13 @@
+{
+	"outputAddress": "",
+	"postKey": "",
+	"outputPort": 80,
+	"postPwd": "",
+	"postUser": "",
+	"notifyUniqueTime": 3600,
+	"txLevel": 0,
+	"outputType": 0,
+	"postHeader": 0,
+	"outputFormat": "{EPC}\\n",
+	"postAuth": false
+}

@@ -100,7 +100,7 @@
 		{
 			updateTags(obj);
 			clearInterval(tagUpdateTimer);
-			tagUpdateTimer = setTimeout(fetchTags, 5000);
+			tagUpdateTimer = setTimeout(fetchTags, 2000);
 		} 
 		else if (obj.type == "status") 
 		{
@@ -326,7 +326,7 @@
 	
 	<!-- style="height:800px; overflow-y:auto" -->
 	<div class="row">
-        <div class="col-sm-6">        
+		<div class="col-md-12">
 			<div class="panel panel-default">
 				<div class="panel-heading">
 					<h1 class="panel-title">Settings</h1>
@@ -442,7 +442,11 @@
 			</div>        	
         </div>
 		
-		<div class="col-sm-6">        
+	</div>
+	
+	<div class="row">
+		<div class="col-md-12">
+      
 			<div class="panel panel-default">
 				<div class="panel-heading">
 					<h1 class="panel-title">Notified tags</h1>
@@ -463,6 +467,7 @@
 			</div>          
 		</div>
 	</div>
+	
 	<div id="certExpDiv"></div>
 	<div class="row" style="padding-top:10px;">
         <div class="col-md-12">

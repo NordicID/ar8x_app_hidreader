@@ -1,6 +1,9 @@
 #!/bin/sh
 
 if [ "$1" = "start" ]; then
+
+	ln -sf ../properties/settings.json ../frontend/settings.json
+
 	# Signal start to your process(es)
 	echo "Starting..."
 	while true;
