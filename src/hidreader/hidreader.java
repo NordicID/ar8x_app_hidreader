@@ -1,7 +1,10 @@
 package hidreader;
 
 import java.net.MalformedURLException;
+import java.net.NetworkInterface;
 import java.net.Socket;
+import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
@@ -16,7 +19,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-
+import java.util.Enumeration;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -71,6 +74,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.jar.Attributes.Name;
 import java.util.Iterator;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -296,7 +300,17 @@ public class hidreader {
 			}
 			catch(Exception e)
 			{
-				return t.getEpcString();
+				return null;
+			}
+		}
+		else if (replStr.startsWith("BARCODE")) {
+			try
+			{
+				return new EPCTagEngine(t.getEpcString()).buildBarcode(false, false, false);
+			}
+			catch(Exception e)
+			{
+				return null;
 			}
 		}
 		return null;
@@ -696,6 +710,30 @@ public class hidreader {
 		} catch (Exception ex)
 		{ }
 	}
+
+	// Get device interface IP address
+	private static String getInterfaceIpAddr(String interfaceName)
+	{
+        try{
+            String ip="";
+		    NetworkInterface networkInterface = NetworkInterface.getByName(interfaceName);
+            Enumeration<InetAddress> inetAddress = networkInterface.getInetAddresses();
+            InetAddress getIpAddress = inetAddress.nextElement();
+            
+			while(inetAddress.hasMoreElements()){
+                getIpAddress = inetAddress.nextElement();
+                if(getIpAddress instanceof Inet4Address && !getIpAddress.isLoopbackAddress()){
+                    ip = getIpAddress.getHostAddress();
+                    break;
+                }
+            }
+            return ip;
+        } 
+        catch (Exception E) {
+            System.err.println("System IP Exp: "+E.getMessage());
+            return null;
+        }
+    }
     
 	public static void main(String[] args) {
 		
@@ -775,6 +813,8 @@ public class hidreader {
 			public void connectedEvent() {
 				try {
 					mApi.setSetupTxLevel((int)txLevel);
+					String macAddr = mApi.getEthConfig().mac;
+					log("MAC address: " + macAddr);
 				} catch (Exception ex)
 				{ }
 			}
@@ -841,7 +881,9 @@ public class hidreader {
 
 			if (!mApi.isConnected())
 			{
-				if (!connectNurIP("localhost", 4333))		
+				// Get device Eth0 IP address
+				String ipAddr = getInterfaceIpAddr("eth0");
+				if (!connectNurIP(ipAddr, 4333))		
 				{					
 					publishStatus("noconn");
 					continue;
