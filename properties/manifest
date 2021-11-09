@@ -1,4 +1,4 @@
 header=ar8x_application
 name=hidreader
-version=1.0.2
+version=1.0.1
 autostart=True
