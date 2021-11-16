@@ -273,7 +273,7 @@ public class hidreader {
     
 	private static String getReplStr(String replStr, NurTag t)
 	{
-		replStr = replStr.toLowerCase();
+		replStr = replStr.toUpperCase();
 
 		if (replStr.startsWith("EPC")) {
 			return t.getEpcString(); 
@@ -300,12 +300,12 @@ public class hidreader {
 				return t.getEpcString();
 			}
 		}
-		else if (replStr.startsWith("barcode"))
+		else if (replStr.startsWith("BARCODE"))
 			try
 			{
-				Boolean includeSn = replStr.contains("+sn");
-				Boolean includeAi = replStr.contains("+ai");
-				Boolean includeCs = replStr.contains("+cs");
+				Boolean includeSn = replStr.contains("+SN");
+				Boolean includeAi = replStr.contains("+AI");
+				Boolean includeCs = replStr.contains("+CS");
 				
 				return new EPCTagEngine(t.getEpcString()).buildBarcode(includeSn, includeAi, includeCs);
 			}
